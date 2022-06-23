@@ -2,27 +2,25 @@
 
 """Logician, a Discord bot."""
 
+# imports
 import re
 import json
 import os
 import sys
+import requests
 from io import BytesIO
 
-import discord
-from discord.ext import commands
-from discord_slash import SlashCommand
-from discord_slash.utils.manage_commands import create_option, create_choice
+import interactions
 from petpetgif import petpet as petpetgif
-import requests
 
 import colortable
 import propaganda.convert as conversion
 
+# load config data
 if 'SECRETS_PATH' not in os.environ:
     print('Please set $SECRETS_PATH to the path to the config file.')
     sys.exit(1)
-    
-# import data
+
 print(f'Loading configuration file at {os.environ["SECRETS_PATH"]}...')
 with open(os.environ['SECRETS_PATH']) as f:
     config_data = json.loads(f.read())
@@ -32,55 +30,62 @@ with open(os.environ['SECRETS_PATH']) as f:
     color_position = config_data["top_color_position"]
     color_file = config_data["color_file"]
 
-intents = discord.Intents.default()
-bot = commands.Bot(intents=intents, command_prefix="$")
-slash = SlashCommand(bot, sync_commands=True)
-
+# set up
+bot = interactions.Client(token=token)
 mbti_types  = ['ISTJ', 'ISTP', 'ISFJ', 'ISFP', 'INFJ', 'INFP', 'INTJ', 'INTP', 'ESTP', 
                'ESTJ', 'ESFP', 'ESFJ', 'ENFP', 'ENFJ', 'ENTP', 'ENTJ', 'none']
-mbti_type_choices = [create_choice(name=t, value=t) for t in mbti_types]
+mbti_type_choices = [interactions.Choice(name=t, value=t) for t in mbti_types]
+hexcolor_regex = re.compile("^#[a-fA-F0-9]{6}$")
+colors = colortable.Colors(color_file)
 
-@slash.slash(name="type", guild_ids=mbti_guilds,
-            description="Sets or removes your MBTI type role.",
-            options=[
-                create_option(
-                    name="mbti_type",
-                    description="Your MBTI type",
-                    option_type=3, # string
-                    required=True,
-                    choices=mbti_type_choices
-                )
-            ])
-async def _type(ctx, mbti_type: str): # set the type of the member
+
+@bot.command(
+    name="type",
+    description="Sets or removes your MBTI type role.",
+    scope=mbti_guilds,
+    options=[
+        interactions.Option(
+            name="mbti_type",
+            description="Your MBTI type (or none)",
+            type=interactions.OptionType.STRING,
+            required=True,
+            choices=mbti_type_choices
+        )
+    ]
+)
+async def _type(ctx: interactions.CommandContext, mbti_type: str): # set the type of the member
+    guild = await ctx.get_guild()
     # remove all MBTI roles
-    # print(ctx.author.roles)
-    for role in ctx.author.roles:
+
+    for role_id in ctx.author.roles:
+        role = await guild.get_role(role_id)
+        print(type(role))
         if role.name in mbti_types:
-            await ctx.author.remove_roles(role)
+            await ctx.author.remove_role(role=role, guild_id=guild.id)
     # add the new MBTI role
     if mbti_type != 'none':
-        for role in ctx.guild.roles:
+        for role in await guild.get_all_roles():
             if role.name == mbti_type:
                 await ctx.send(f"Setting type to {mbti_type}.")
-                await ctx.author.add_roles(role)
+                await ctx.author.add_role(role=role, guild_id=guild.id)
                 return
         await ctx.send("Sorry, we don't have that MBTI role.")
     else:
         await ctx.send("Removing MBTI type role.")
 
-hexcolor_regex = re.compile("^#[a-fA-F0-9]{6}$")
-colors = colortable.Colors(color_file)
-@slash.slash(name="color", guild_ids=color_guilds,
-            description="Set your color role.",
-            options=[
-                create_option(
-                    name="color",
-                    description="The name of your desired color, or a hex code starting with #",
-                    option_type=3, # string
-                    required=True
-                )
-            ])
-async def _color(ctx, color: str):
+
+@bot.command(
+    name="color",
+    scope=color_guilds,
+    description="Set your color role.",
+    options=[
+        interactions.Option(
+            name="color",
+            description="The name of your desired color, or a hex code starting with #",
+            type=interactions.OptionType.STRING,
+            required=True
+        ) ]) 
+async def _color(ctx: interactions.CommandContext, color: str):
     # validate color name or code
     if colors.lookup(color):
         colorname = color[::]
@@ -91,40 +96,54 @@ async def _color(ctx, color: str):
     else:
         await ctx.send(f"Sorry, I don't know what color {color} is.")
         return
+
     # remove old color roles
-    for role in ctx.author.roles:
+    guild = await ctx.get_guild()
+    for role_id in ctx.author.roles:
+        role = await guild.get_role(role_id)
         if hexcolor_regex.match(role.name):
-            await ctx.author.remove_roles(role)
+            await ctx.author.remove_role(role=role, guild_id=guild.id)
     # create or add new color role
-    for role in ctx.guild.roles:
+    all_roles = await guild.get_all_roles()
+    for role in all_roles:
         # search for existing color role
         if role.name == color:
-            await ctx.author.add_roles(role)
+            await ctx.author.add_role(role=role, guild_id=guild.id)
             return
     # if we haven't found it, create a new color role
-    hexColor = int(color[1::], 16)
-    newColorRole = await ctx.guild.create_role(name=color, color=hexColor)
-    await newColorRole.edit(position=color_position[str(ctx.guild.id)])
-    await ctx.author.add_roles(newColorRole)
+    hex_color = int(color[1::], 16)
+    new_color_role = await guild.create_role(name=color, color=hex_color)
+    await guild.modfiy_role_position(new_color_role, color_position(str(guild.id)))
+    await ctx.author.add_role(role=new_color_role, guild_id=guild.id)
 
-@slash.slash(name="nocolor", guild_ids=color_guilds, description="Remove your color role.")
+
+@bot.command(
+    name="nocolor", 
+    scope=color_guilds, 
+    description="Remove your color role."
+)
 async def _nocolor(ctx):
     # remove old color roles
-    for role in ctx.author.roles:
+    guild = await ctx.get_guild()
+    for role_id in ctx.author.roles:
+        role = await guild.get_role(role_id)
         if hexcolor_regex.match(role.name):
             await ctx.send("Removing color role(s).")
-            await ctx.author.remove_roles(role)
+            await ctx.author.remove_role(role=role, guild_id=guild.id)
 
-@slash.slash(name="petpet", guild_ids=color_guilds, 
-        description="Generate a petpet .gif from an image.",
-        options=[
-            create_option(
-                name='url',
-                description='URL where the image is located.',
-                option_type=3, # string
-                required=True
-            )
-        ])
+
+@bot.command(
+    name="petpet", 
+    scope=color_guilds, 
+    description="Generate a petpet .gif from an image.",
+    options=[
+        interactions.Option(
+            name='url',
+            description='URL where the image is located.',
+            type=interactions.OptionType.STRING,
+            required=True
+        )
+    ])
 async def _petpetgif(ctx, url):
     try:
         resp = requests.get(url, stream=True)
@@ -145,37 +164,47 @@ async def _petpetgif(ctx, url):
         print(e)
         await ctx.send('Failed to create petpet.')
         return
-    await ctx.send(file=discord.File(petpet, filename="petpet.gif"))
+    msg = await ctx.send(".")
+    await msg.edit(content="", files=interactions.File(fp=petpet, filename="petpet.gif"))
 
-@slash.slash(name="propaganda", guild_ids=color_guilds, 
-        description="Generate a \"you are not immune to\"  meme with the given phrase.",
-        options=[
-            create_option(
-                name='phrase',
-                description='Phrase to insert into the image',
-                option_type=3, # string
-                required=True
-            )
-        ])
+
+@bot.command(
+    name="propaganda", 
+    scope=color_guilds, 
+    description="Generate a \"you are not immune to\"  meme with the given phrase.",
+    options=[
+        interactions.Option(
+            name='phrase',
+            description='Phrase to insert into the image',
+            type=interactions.OptionType.STRING,
+            required=True
+        )
+    ])
 async def _propaganda(ctx, phrase):
     if len(phrase) > 15:
         await ctx.send('Please use a phrase shorter than 15 characters.')
         return
     prop = conversion.save_meme(phrase, BytesIO())
-    await ctx.send(file=discord.File(prop, filename="propaganda.jpg"))
+    msg = await ctx.send(".")
+    await msg.edit(content="", files=interactions.File(filename="propaganda.jpg", fp=prop))
     
-@bot.command(name='reboot')
+"""
+@bot.command(
+    name='reboot',
+    description='Restarts me.',
+    default_member_permissions=interactions.Permissions.ADMINISTRATOR
+)
 async def _reboot(ctx):
-    if ctx.author.top_role.permissions.administrator:
-        await ctx.send("Goodbye... for now.")
-        await ctx.bot.logout()
-    else:
-        await ctx.send("I'm afraid I can't do that.")
+    await ctx.send("Goodbye... for now.")
+    bot._loop.stop()
+    # sys.exit()
+"""
 
 # on activation
 @bot.event
 async def on_ready():
-    print(f'logged in as {bot.user}')
+    print(f'logged in as {bot.me}')
 
 # run the bot
-bot.run(token)
+bot.start()
+
