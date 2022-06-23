@@ -12,6 +12,7 @@ from io import BytesIO
 
 import interactions
 from petpetgif import petpet as petpetgif
+import openai
 
 import colortable
 import propaganda.convert as conversion
@@ -29,6 +30,9 @@ with open(os.environ['SECRETS_PATH']) as f:
     color_guilds = config_data["color_guilds"]
     color_position = config_data["top_color_position"]
     color_file = config_data["color_file"]
+    openai_api_key = config_data["openai_api_key"]
+    openai_max_tokens = config_data["openai_max_tokens"]
+    openai_temp = config_data["openai_temperature"]
 
 # set up
 bot = interactions.Client(token=token)
@@ -37,7 +41,7 @@ mbti_types  = ['ISTJ', 'ISTP', 'ISFJ', 'ISFP', 'INFJ', 'INFP', 'INTJ', 'INTP', '
 mbti_type_choices = [interactions.Choice(name=t, value=t) for t in mbti_types]
 hexcolor_regex = re.compile("^#[a-fA-F0-9]{6}$")
 colors = colortable.Colors(color_file)
-
+openai.api_key = openai_api_key
 
 @bot.command(
     name="type",
@@ -188,17 +192,34 @@ async def _propaganda(ctx, phrase):
     msg = await ctx.send(".")
     await msg.edit(content="", files=interactions.File(filename="propaganda.jpg", fp=prop))
     
-"""
 @bot.command(
-    name='reboot',
-    description='Restarts me.',
-    default_member_permissions=interactions.Permissions.ADMINISTRATOR
-)
-async def _reboot(ctx):
-    await ctx.send("Goodbye... for now.")
-    bot._loop.stop()
-    # sys.exit()
-"""
+    name="prompt", 
+    scope=color_guilds, 
+    description="Generate some text to respond to the given prompt with an OpenAI language model.",
+    options=[
+        interactions.Option(
+            name='prompt',
+            description='Prompt for text generation.',
+            type=interactions.OptionType.STRING,
+            required=True
+        )
+    ])
+async def _prompt(ctx, prompt):
+    msg = await ctx.send("Let me think...")
+    try:
+        response = openai.Completion.create(
+            model="text-davinci-002",
+            prompt=prompt,
+            max_tokens=openai_max_tokens,
+            temperature=openai_temp
+        )
+        print(f"{prompt}: {response}")
+    except openai.OpenAIError as e:
+        print(e)
+        await msg.edit(content="Sorry, I couldn't create a response to \"{prompt}\".")
+        return
+    contents = response.choices.pop().text.strip().replace("\n\n", "\n")
+    await msg.edit(content=f"**[{prompt}]** {contents}")
 
 # on activation
 @bot.event
