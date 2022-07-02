@@ -4,4 +4,4 @@
 
 discord bot for personal use
 
-requires the `discord.py` and `pet-pet-gif` Python packages.
+requires the `discord-py-interactions`, `pet-pet-gif`, and `openai` Python packages.
