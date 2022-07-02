@@ -33,6 +33,18 @@ with open(os.environ['SECRETS_PATH']) as f:
     openai_api_key = config_data["openai_api_key"]
     openai_max_tokens = config_data["openai_max_tokens"]
     openai_temp = config_data["openai_temperature"]
+    openai_forbidden = [
+        "remus",
+        "sirius",
+        "slash",
+        "wolfstar",
+        "remus lupin",
+        "sirius black",
+        "erotic fiction",
+        "erotic fan fiction",
+        "smut",
+        "erotica"
+    ]
 
 # set up
 bot = interactions.Client(token=token)
@@ -206,6 +218,10 @@ async def _propaganda(ctx, phrase):
     ])
 async def _prompt(ctx, prompt):
     msg = await ctx.send("Let me think...")
+    for restricted_phrase in openai_forbidden:
+        if restricted_phrase in prompt.lower():
+            await msg.edit(content=f"I am not legally allowed to generate a response for prompt **[{prompt}]**.")
+            return
     try:
         response = openai.Completion.create(
             model="text-davinci-002",
@@ -219,7 +235,11 @@ async def _prompt(ctx, prompt):
         await msg.edit(content="Sorry, I couldn't create a response to \"{prompt}\".")
         return
     contents = response.choices.pop().text.strip().replace("\n\n", "\n")
-    await msg.edit(content=f"**[{prompt}]** {contents}")
+    try:
+        await msg.edit(content=f"**[{prompt}]** {contents}")
+    except AttributeError: # if no response
+        await msg.edit(content="Sorry, I couldn't create a response to \"{prompt}\".")
+        
 
 # on activation
 @bot.event
