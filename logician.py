@@ -3,6 +3,7 @@
 """Logician, a Discord bot."""
 
 # imports
+import asyncio
 import re
 import json
 import os
@@ -115,6 +116,8 @@ async def _color(ctx: interactions.CommandContext, color: str):
 
     # remove old color roles
     guild = await ctx.get_guild()
+    if not ctx.author.roles:
+        return
     for role_id in ctx.author.roles:
         role = await guild.get_role(role_id)
         if hexcolor_regex.match(role.name):
@@ -129,7 +132,9 @@ async def _color(ctx: interactions.CommandContext, color: str):
     # if we haven't found it, create a new color role
     hex_color = int(color[1::], 16)
     new_color_role = await guild.create_role(name=color, color=hex_color)
-    await guild.modfiy_role_position(new_color_role, color_position(str(guild.id)))
+    await asyncio.sleep(0.25)
+    await new_color_role.modify_position(guild_id=guild.id, position=int(color_position[str(guild.id)]))
+    await asyncio.sleep(0.25)
     await ctx.author.add_role(role=new_color_role, guild_id=guild.id)
 
 
