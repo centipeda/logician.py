@@ -18,6 +18,10 @@ import openai
 import colortable
 import propaganda.convert as conversion
 
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
+}
+
 # load config data
 if 'SECRETS_PATH' not in os.environ:
     print('Please set $SECRETS_PATH to the path to the config file.')
@@ -34,25 +38,14 @@ with open(os.environ['SECRETS_PATH']) as f:
     openai_api_key = config_data["openai_api_key"]
     openai_max_tokens = config_data["openai_max_tokens"]
     openai_temp = config_data["openai_temperature"]
-    openai_forbidden = [
-        "remus",
-        "sirius",
-        "slash",
-        "wolfstar",
-        "remus lupin",
-        "sirius black",
-        "erotic fiction",
-        "erotic fan fiction",
-        "smut",
-        "erotica"
-    ]
+    openai_forbidden = config_data["openai_forbidden"]
 
 # set up
 bot = interactions.Client(token=token)
 mbti_types  = ['ISTJ', 'ISTP', 'ISFJ', 'ISFP', 'INFJ', 'INFP', 'INTJ', 'INTP', 'ESTP', 
                'ESTJ', 'ESFP', 'ESFJ', 'ENFP', 'ENFJ', 'ENTP', 'ENTJ', 'none']
 mbti_type_choices = [interactions.Choice(name=t, value=t) for t in mbti_types]
-hexcolor_regex = re.compile("^#[a-fA-F0-9]{6}$")
+hexcolor_regex = re.compile("^#?[a-fA-F0-9]{6}$")
 colors = colortable.Colors(color_file)
 openai.api_key = openai_api_key
 
@@ -74,11 +67,12 @@ async def _type(ctx: interactions.CommandContext, mbti_type: str): # set the typ
     guild = await ctx.get_guild()
     # remove all MBTI roles
 
-    for role_id in ctx.author.roles:
-        role = await guild.get_role(role_id)
-        print(type(role))
-        if role.name in mbti_types:
-            await ctx.author.remove_role(role=role, guild_id=guild.id)
+    if ctx.author.roles:
+        for role_id in ctx.author.roles:
+            role = await guild.get_role(role_id)
+            print(type(role))
+            if role.name in mbti_types:
+                await ctx.author.remove_role(role=role, guild_id=guild.id)
     # add the new MBTI role
     if mbti_type != 'none':
         for role in await guild.get_all_roles():
@@ -98,7 +92,7 @@ async def _type(ctx: interactions.CommandContext, mbti_type: str): # set the typ
     options=[
         interactions.Option(
             name="color",
-            description="The name of your desired color, or a hex code starting with #",
+            description="The name of your desired color, or a hex code representing the color.",
             type=interactions.OptionType.STRING,
             required=True
         ) ]) 
@@ -109,6 +103,8 @@ async def _color(ctx: interactions.CommandContext, color: str):
         color = colors.lookup(color)
         await ctx.send(f"Setting color to {colorname} ({color}).")
     elif hexcolor_regex.match(color):
+        if not color.startswith("#"):
+            color = f"#{color}"
         await ctx.send(f"Setting color to {color}.")
     else:
         await ctx.send(f"Sorry, I don't know what color {color} is.")
@@ -116,12 +112,11 @@ async def _color(ctx: interactions.CommandContext, color: str):
 
     # remove old color roles
     guild = await ctx.get_guild()
-    if not ctx.author.roles:
-        return
-    for role_id in ctx.author.roles:
-        role = await guild.get_role(role_id)
-        if hexcolor_regex.match(role.name):
-            await ctx.author.remove_role(role=role, guild_id=guild.id)
+    if ctx.author.roles:
+        for role_id in ctx.author.roles:
+            role = await guild.get_role(role_id)
+            if hexcolor_regex.match(role.name):
+                await ctx.author.remove_role(role=role, guild_id=guild.id)
     # create or add new color role
     all_roles = await guild.get_all_roles()
     for role in all_roles:
@@ -167,16 +162,21 @@ async def _nocolor(ctx):
     ])
 async def _petpetgif(ctx, url):
     try:
-        resp = requests.get(url, stream=True)
+        if not url.startswith('https://'):
+            url = "https://" + url
+        resp = requests.get(url, stream=True, headers=headers)
     except Exception as e:
         print(e)
         await ctx.send('Failed to retrieve image from link.')
         return
-    if not resp.headers['Content-Type'].startswith('image'):
-        await ctx.send('Please provide a link to an image.')
-        return
+
+    # if resp.headers['Content-Type'].startswith('image') or resp.headers['content-type'].startswith('image'):
+    #     pass
+    # else:
+    #     await ctx.send('Please provide a link to an image.')
+    #     return
     
-    imagedata = resp.raw
+    imagedata = BytesIO(resp.content)
     petpet = BytesIO()
     try:
         petpetgif.make(imagedata, petpet)
@@ -185,7 +185,7 @@ async def _petpetgif(ctx, url):
         print(e)
         await ctx.send('Failed to create petpet.')
         return
-    msg = await ctx.send(".")
+    msg = await ctx.send("Loading...")
     await msg.edit(content="", files=interactions.File(fp=petpet, filename="petpet.gif"))
 
 
